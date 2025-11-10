@@ -1,0 +1,20 @@
+{
+  "bb_bench":   {"type":"compound","targets":["chest","triceps","shoulders"],"prox":0.9},
+  "incline_db": {"type":"compound","targets":["chest","shoulders"],"prox":0.85},
+  "pec_deck":   {"type":"isolation","targets":["chest"],"prox":1.0},
+  "row":        {"type":"compound","targets":["back","biceps"],"prox":0.9},
+  "bb_deadlift":{"type":"compound","targets":["back","quads"],"prox":0.85},
+  "lat_pull":   {"type":"compound","targets":["back","biceps"],"prox":1.0},
+  "ohp":        {"type":"compound","targets":["shoulders","triceps"],"prox":0.85},
+  "lat_raises": {"type":"isolation","targets":["shoulders"],"prox":1.0},
+  "chin-ups":   {"type":"compound","targets":["chest","back"],"prox":0.9},
+  "curl":       {"type":"isolation","targets":["biceps"],"prox":0.9},
+  "weight_dips":{"type":"compound","targets":["chest","triceps","shoulders"],"prox":0.9},
+  "tricep_push":{"type":"isolation","targets":["triceps"],"prox":1.0},
+  "squat":      {"type":"compound","targets":["quads","glutes"],"prox":0.8},
+  "hip_thrust":  {"type":"isolation","targets":["glutes"],"prox":0.9},
+  "rdl":        {"type":"compound","targets":["hamstrings","glutes"],"prox":0.85},
+  "leg_press":  {"type":"compound","targets":["quads","glutes"],"prox":0.85},
+  "plank":      {"type":"isolation","targets":["core"],"prox":0.8},
+  "calf_raise": {"type":"isolation","targets":["calves"],"prox":1.0}
+}
