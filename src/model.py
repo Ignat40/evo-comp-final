@@ -266,3 +266,5 @@ if __name__ == "__main__":
 
     score, H, F, M = evaluate_single_objective(plan, exdb)
     print(f"\nScore={score:.3f} | H_sum={H:.3f} | F_sum={F:.3f} | Minutes={M:.1f}")
+
+# needs to be optimized in the future 
