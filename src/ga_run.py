@@ -1,5 +1,6 @@
 import argparse, random, numpy as np, pandas as pd, os
 from typing import List
+from .model import order_session_by_compound_first
 from deap import base, creator, tools
 from .model import (load_exercise_db, Plan, Session, Block,
                     evaluate_single_objective, summarize_plan,
@@ -75,6 +76,8 @@ def make_toolbox(exdb):
                     blocks.append(Block(ex, sets, reps, intensity, rest))
             days.append(Session(blocks))
         return Plan(days)
+    toolbox.register("decode_to_plan", decode_to_plan)
+
 
     def evaluate(ind):
         plan = decode_to_plan(ind)
@@ -124,6 +127,16 @@ def make_toolbox(exdb):
                         rest = max(45, min(240, rest + random.choice([-15, 15])))
 
                     ind[i] = Block(ex, sets, reps, intensity, rest)
+                    
+
+        plan = toolbox.decode_to_plan(ind)
+        for day in range(DAYS):
+            sess = plan.sessions[day]
+            plan.sessions[day] = order_session_by_compound_first(sess, exdb)
+
+        ind[:] = [b for sess in plan.sessions for b in sess.blocks + [None]*(MAX_BLOCKS_PER_DAY - len(sess.blocks))]
+
+                    
         return (ind,)
 
     toolbox.register("evaluate", evaluate)

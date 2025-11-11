@@ -159,8 +159,15 @@ def plan_to_daily_stimuli(plan: Plan, exdb: Dict[str, dict]) -> List[Dict[str, L
 # 7. REPAIR (FEASIBILITY)
 # ==========================================================
 
+def order_session_by_compound_first(sess: Session, exdb: Dict[str, dict]) -> Session:
+    """Sort blocks so compound exercises come before isolation ones."""
+    compounds = [b for b in sess.blocks if exdb[b.ex_id]["type"] == "compound"]
+    isolations = [b for b in sess.blocks if exdb[b.ex_id]["type"] != "compound"]
+    return Session(compounds + isolations)
+
+
 def repair_plan(plan: Plan, session_cap_min: float = SESSION_CAP_MIN,
-                min_session_min: float = 40.0, exdb=None) -> Plan:
+                min_session_min: float = 50.0, exdb=None) -> Plan:
     """Keeps sessions under cap and ensures ≥ min_session_min ONLY for non-empty sessions."""
     ex_ids = list(exdb.keys()) if exdb else []
     new_sessions = []
@@ -195,7 +202,9 @@ def repair_plan(plan: Plan, session_cap_min: float = SESSION_CAP_MIN,
                 blocks.append(random_block(ex_ids, exdb))
                 cur = session_minutes(Session(blocks))
 
-        new_sessions.append(Session(blocks))
+
+        sess_ordered = order_session_by_compound_first(Session(blocks), exdb)
+        new_sessions.append(sess_ordered)
 
     return Plan(new_sessions)
 
@@ -216,74 +225,55 @@ def repair_plan(plan: Plan, session_cap_min: float = SESSION_CAP_MIN,
 #     return score, H_sum, F_sum, minutes
 
 def evaluate_single_objective(plan, exdb, sra=None):
-    """
-    Single-objective fitness combining:
-    - Hypertrophy stimulus (H_sum)
-    - Fatigue penalty (F_sum)
-    - Time penalty (total minutes)
-    - Global diversity penalty (duplicates across the week)
-    - Per-day duplicate penalty (same exercise repeated within a day)
-    - Imbalance penalty (std dev across muscles)
-    - Rest-day bonus (true rest days)
-    - Full-body coverage reward
-    - Alternation penalty (back-to-back overlap)
-    """
+    import numpy as np
     sra = sra or SRAModel()
-    # ensure ≥40 min only for non-empty days; cap long days
     plan = repair_plan(plan, SESSION_CAP_MIN, 40.0, exdb)
-
     days = plan_to_daily_stimuli(plan, exdb)
     H, F = sra.roll_week(days)
     H_sum, F_sum = sum(H.values()), sum(F.values())
     minutes = plan_minutes(plan)
 
-    # GLOBAL diversity (across the whole week)
+    # ---- Diversity & balance ----
     all_ex = [b.ex_id for s in plan.sessions for b in s.blocks]
-    unique_ex = len(set(all_ex))
-    div_penalty = (len(all_ex) - unique_ex) / max(1, len(all_ex))
-
-    # PER-DAY duplicate penalty
-    day_dup_penalty = 0.0
-    for sess in plan.sessions:
-        exs = [b.ex_id for b in sess.blocks]
-        if exs:
-            day_dup_penalty += (len(exs) - len(set(exs))) / len(exs)
-
-    # Muscle imbalance
+    dup_penalty = sum((len(exs) - len(set(exs))) / max(1, len(exs))
+                      for exs in ([b.ex_id for b in s.blocks] for s in plan.sessions))
     stim = np.array(list(H.values()))
-    imbalance = float(np.std(stim)) if stim.size else 0.0
+    imbalance = np.std(stim)
 
-    # Rest-day bonus: true REST only (0 minutes)
+    # ---- Session durations ----
     daily_minutes = [session_minutes(s) for s in plan.sessions]
-    rest_days = sum(1 for m in daily_minutes if m == 0.0)
-    rest_bonus = 1.0 * rest_days  # tune as you like
+    short_penalty = sum(1 for m in daily_minutes if 0 < m < 45) * 5.0   # stronger penalty
+    long_bonus    = sum(1 for m in daily_minutes if m > 55) * 3.0       # small reward
+    rest_bonus    = sum(1 for m in daily_minutes if m < 25) * 1.0       # small rest reward
 
-    # Coverage reward (how many muscles got meaningful H)
+    # ---- Compound preference ----
+    compound_ratio = sum(1 for b in all_ex if exdb[b]["type"] == "compound") / max(1, len(all_ex))
+
+    # ---- Coverage & alternation ----
     coverage = sum(1 for v in H.values() if v > 0.5) / len(MUSCLES)
-
-    # Alternation penalty (overlapping targets on consecutive days)
-    prev_targets = set()
-    penalty_repeat = 0.0
+    prev_targets = set(); penalty_repeat = 0
     for sess in plan.sessions:
-        todays_targets = {m for b in sess.blocks for m in exdb[b.ex_id]["targets"]} if sess.blocks else set()
+        todays_targets = {m for b in sess.blocks for m in exdb[b.ex_id]["targets"]}
         overlap = len(todays_targets & prev_targets)
-        penalty_repeat += (overlap / max(1, len(todays_targets))) if todays_targets else 0.0
+        penalty_repeat += overlap / max(1, len(todays_targets))
         prev_targets = todays_targets
 
-    # Weighted score composition (tune weights to taste)
+    # ---- Weighted fitness ----
     score = (
-        H_sum
-        - 0.30 * F_sum
-        - 0.02 * minutes
-        - 30.0 * div_penalty
-        - 25.0 * day_dup_penalty
-        - 20.0 * imbalance
-        + 12.0 * coverage
+        1.2 * H_sum                      # ↑ reward for total stimulus
+        - 0.25 * F_sum
+        - 0.015 * minutes
+        - 20 * dup_penalty
+        - 15 * imbalance
+        + 10 * coverage
+        + 5 * compound_ratio             # reward more compounds overall
+        + long_bonus
         + rest_bonus
-        - 5.0 * penalty_repeat
+        - short_penalty
+        - 5 * penalty_repeat
     )
-
     return score, H_sum, F_sum, minutes
+
 
 
 # ==========================================================
