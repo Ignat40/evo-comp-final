@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional
 import json, math, random, os
+import numpy as np
 
 # ==========================================================
 # 0. GLOBAL CONFIGURATION
@@ -158,18 +159,19 @@ def plan_to_daily_stimuli(plan: Plan, exdb: Dict[str, dict]) -> List[Dict[str, L
 # 7. REPAIR (FEASIBILITY)
 # ==========================================================
 
-def repair_plan(plan: Plan, session_cap_min: float = SESSION_CAP_MIN) -> Plan:
-    """
-    Keeps sessions under 90 minutes by:
-      - Reducing sets >2
-      - Reducing rest >60s
-      - Dropping smallest block
-    """
+def repair_plan(plan: Plan, session_cap_min: float = SESSION_CAP_MIN,
+                min_session_min: float = 40.0, exdb=None) -> Plan:
+    """Keeps sessions under cap and ensures ≥ min_session_min ONLY for non-empty sessions."""
+    ex_ids = list(exdb.keys()) if exdb else []
     new_sessions = []
+
     for sess in plan.sessions:
         blocks = list(sess.blocks)
+        was_empty = (len(blocks) == 0)   # <- remember if this is a rest day
         cur = session_minutes(sess)
         j = 0
+
+        # Cap long sessions
         while cur > session_cap_min and blocks:
             i = j % len(blocks)
             b = blocks[i]
@@ -178,7 +180,6 @@ def repair_plan(plan: Plan, session_cap_min: float = SESSION_CAP_MIN) -> Plan:
             elif b.rest_s > 60:
                 b.rest_s -= 15
             else:
-                # remove smallest-time block
                 idx = min(range(len(blocks)), key=lambda k: block_minutes(blocks[k]))
                 cur -= block_minutes(blocks[idx])
                 blocks.pop(idx)
@@ -186,31 +187,117 @@ def repair_plan(plan: Plan, session_cap_min: float = SESSION_CAP_MIN) -> Plan:
                 continue
             cur = session_minutes(Session(blocks))
             j += 1
+
+        # Top up ONLY if the day already had work
+        if not was_empty and ex_ids:
+            while cur < min_session_min and blocks:
+                # use the model.py random_block (signature: (ex_ids, exdb=None, day_focus=None))
+                blocks.append(random_block(ex_ids, exdb))
+                cur = session_minutes(Session(blocks))
+
         new_sessions.append(Session(blocks))
+
     return Plan(new_sessions)
 
 # ==========================================================
 # 8. EVALUATION (SINGLE-OBJECTIVE)
 # ==========================================================
 
-def evaluate_single_objective(plan: Plan, exdb: Dict[str, dict],
-                              c1: float = C1_FATIGUE, c2: float = C2_TIME,
-                              sra: Optional[SRAModel] = None) -> Tuple[float, float, float, float]:
+# def evaluate_single_objective(plan: Plan, exdb: Dict[str, dict],
+#                               c1: float = C1_FATIGUE, c2: float = C2_TIME,
+#                               sra: Optional[SRAModel] = None) -> Tuple[float, float, float, float]:
+#     sra = sra or SRAModel()
+#     plan = repair_plan(plan, SESSION_CAP_MIN)
+#     days = plan_to_daily_stimuli(plan, exdb)
+#     H, F = sra.roll_week(days)
+#     H_sum, F_sum = sum(H.values()), sum(F.values())
+#     minutes = plan_minutes(plan)
+#     score = H_sum - c1 * F_sum - c2 * minutes
+#     return score, H_sum, F_sum, minutes
+
+def evaluate_single_objective(plan, exdb, sra=None):
+    """
+    Single-objective fitness combining:
+    - Hypertrophy stimulus (H_sum)
+    - Fatigue penalty (F_sum)
+    - Time penalty (total minutes)
+    - Global diversity penalty (duplicates across the week)
+    - Per-day duplicate penalty (same exercise repeated within a day)
+    - Imbalance penalty (std dev across muscles)
+    - Rest-day bonus (true rest days)
+    - Full-body coverage reward
+    - Alternation penalty (back-to-back overlap)
+    """
     sra = sra or SRAModel()
-    plan = repair_plan(plan, SESSION_CAP_MIN)
+    # ensure ≥40 min only for non-empty days; cap long days
+    plan = repair_plan(plan, SESSION_CAP_MIN, 40.0, exdb)
+
     days = plan_to_daily_stimuli(plan, exdb)
     H, F = sra.roll_week(days)
     H_sum, F_sum = sum(H.values()), sum(F.values())
     minutes = plan_minutes(plan)
-    score = H_sum - c1 * F_sum - c2 * minutes
+
+    # GLOBAL diversity (across the whole week)
+    all_ex = [b.ex_id for s in plan.sessions for b in s.blocks]
+    unique_ex = len(set(all_ex))
+    div_penalty = (len(all_ex) - unique_ex) / max(1, len(all_ex))
+
+    # PER-DAY duplicate penalty
+    day_dup_penalty = 0.0
+    for sess in plan.sessions:
+        exs = [b.ex_id for b in sess.blocks]
+        if exs:
+            day_dup_penalty += (len(exs) - len(set(exs))) / len(exs)
+
+    # Muscle imbalance
+    stim = np.array(list(H.values()))
+    imbalance = float(np.std(stim)) if stim.size else 0.0
+
+    # Rest-day bonus: true REST only (0 minutes)
+    daily_minutes = [session_minutes(s) for s in plan.sessions]
+    rest_days = sum(1 for m in daily_minutes if m == 0.0)
+    rest_bonus = 1.0 * rest_days  # tune as you like
+
+    # Coverage reward (how many muscles got meaningful H)
+    coverage = sum(1 for v in H.values() if v > 0.5) / len(MUSCLES)
+
+    # Alternation penalty (overlapping targets on consecutive days)
+    prev_targets = set()
+    penalty_repeat = 0.0
+    for sess in plan.sessions:
+        todays_targets = {m for b in sess.blocks for m in exdb[b.ex_id]["targets"]} if sess.blocks else set()
+        overlap = len(todays_targets & prev_targets)
+        penalty_repeat += (overlap / max(1, len(todays_targets))) if todays_targets else 0.0
+        prev_targets = todays_targets
+
+    # Weighted score composition (tune weights to taste)
+    score = (
+        H_sum
+        - 0.30 * F_sum
+        - 0.02 * minutes
+        - 30.0 * div_penalty
+        - 25.0 * day_dup_penalty
+        - 20.0 * imbalance
+        + 12.0 * coverage
+        + rest_bonus
+        - 5.0 * penalty_repeat
+    )
+
     return score, H_sum, F_sum, minutes
+
 
 # ==========================================================
 # 9. RANDOM PLAN GENERATOR
 # ==========================================================
 
-def random_block(ex_ids: List[str]) -> Block:
-    ex = random.choice(ex_ids)
+def random_block(ex_ids: List[str], exdb=None, day_focus=None) -> Block:
+    """Generate a random exercise block, optionally using focus muscles."""
+    if exdb and day_focus:
+        focus_ex = [eid for eid in ex_ids if any(m in exdb[eid]["targets"] for m in day_focus)]
+        ex = random.choice(focus_ex) if focus_ex else random.choice(ex_ids)
+    else:
+        ex = random.choice(ex_ids)
+
     sets = random.randint(2, 5)
     reps = random.randint(6, 15)
     intensity = round(random.uniform(0.6, 0.85), 2)
@@ -227,9 +314,15 @@ def random_plan(exdb: Dict[str, dict],
         for _ in range(max_blocks_per_day):
             if random.random() < p_empty:
                 continue
-            blocks.append(random_block(ex_ids))
-        sessions.append(Session(blocks))
+            blocks.append(random_block(ex_ids, exdb))
+        s = Session(blocks)
+        # ensure at least 40 min or rebuild
+        while session_minutes(s) < 40 and blocks:
+            blocks.append(random_block(ex_ids, exdb))
+            s = Session(blocks)
+        sessions.append(s)
     return repair_plan(Plan(sessions))
+
 
 # ==========================================================
 # 10. PRETTY PRINTING
