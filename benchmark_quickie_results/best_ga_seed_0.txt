@@ -1,0 +1,46 @@
+Day 1:
+  - bb_bench      3x7 @ 0.74  rest 150s  (~8.6 min)
+  - arnold_press  4x8 @ 0.72  rest 180s  (~13.6 min)
+  - tricep_push   5x14 @ 0.79  rest 90s  (~11.0 min)
+  - reverse_fly   5x17 @ 0.79  rest 120s  (~14.2 min)
+  - front_raise   5x13 @ 0.75  rest 120s  (~13.2 min)
+    Session ≈ 60.6 min
+Day 2:
+  - chin_ups      4x6 @ 0.76  rest 120s  (~9.2 min)
+  - pull_up       4x6 @ 0.79  rest 180s  (~13.2 min)
+  - cable_curl    4x14 @ 0.77  rest 60s  (~6.8 min)
+  - preacher_curl  5x8 @ 0.70  rest 120s  (~12.0 min)
+  - hammer_curl   3x13 @ 0.74  rest 60s  (~4.9 min)
+    Session ≈ 46.2 min
+Day 3:
+  - bb_deadlift   4x10 @ 0.85  rest 180s  (~14.0 min)
+  - rdl           4x5 @ 0.82  rest 120s  (~9.0 min)
+  - squat         4x10 @ 0.73  rest 135s  (~11.0 min)
+  - front_squat   4x9 @ 0.72  rest 180s  (~13.8 min)
+  - hip_thrust    3x12 @ 0.79  rest 120s  (~7.8 min)
+    Session ≈ 55.6 min
+Day 4:
+  - bb_bench      5x8 @ 0.85  rest 120s  (~12.0 min)
+  - weight_dips   5x10 @ 0.85  rest 150s  (~15.0 min)
+  - incline_db    5x10 @ 0.73  rest 180s  (~17.5 min)
+  - tricep_push   3x12 @ 0.76  rest 60s  (~4.8 min)
+  - front_raise   3x11 @ 0.74  rest 90s  (~6.1 min)
+    Session ≈ 55.4 min
+Day 5:
+  - seated_row_machine  5x9 @ 0.74  rest 150s  (~14.8 min)
+  - pull_up       4x8 @ 0.84  rest 150s  (~11.6 min)
+  - hammer_curl   4x13 @ 0.77  rest 120s  (~10.6 min)
+  - single_arm_cable_row  5x10 @ 0.74  rest 90s  (~10.0 min)
+  - curl          4x13 @ 0.75  rest 90s  (~8.6 min)
+    Session ≈ 55.6 min
+Day 6:
+  - front_squat   3x6 @ 0.77  rest 180s  (~9.9 min)
+  - step_up       4x6 @ 0.76  rest 180s  (~13.2 min)
+  - bb_deadlift   4x9 @ 0.78  rest 150s  (~11.8 min)
+  - seated_calf_raise  4x13 @ 0.72  rest 90s  (~8.6 min)
+  - leg_extension  3x13 @ 0.78  rest 90s  (~6.4 min)
+    Session ≈ 50.0 min
+Day 7:
+  - squat         3x8 @ 0.83  rest 150s  (~8.7 min)
+    Session ≈ 8.7 min
+Week total ≈ 332.0 min
