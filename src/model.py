@@ -1,13 +1,4 @@
-"""
-This module provides:
-1) A full 7-day workout plan representation
-2) Effective Stimulus (ES) per set calculation
-3) Stimulus-Recovery-Adaptation (SRA) model
-4) Feasibility repair (≤90 min per session)
-5) Single-objective evaluation for the GA
-6) Random plan generator for baseline
-7) Pretty-printing for presentations
-"""
+
 
 from __future__ import annotations
 from dataclasses import dataclass
@@ -15,9 +6,7 @@ from typing import List, Dict, Tuple, Optional
 import json, math, random, os
 import numpy as np
 
-# ==========================================================
-# 0. GLOBAL CONFIGURATION
-# ==========================================================
+
 
 MUSCLES = [
     "chest","back","quads","hamstrings","glutes",
@@ -26,13 +15,10 @@ MUSCLES = [
 
 DAYS = 7
 MAX_BLOCKS_PER_DAY = 5
-SESSION_CAP_MIN = 100.0 # Max minutes per session
+SESSION_CAP_MIN = 100.0 
 C1_FATIGUE = 0.30       # fatigue penalty 
 C2_TIME = 0.01          # time penalty
 
-# ==========================================================
-# 1. LOADING EXERCISE METADATA
-# ==========================================================
 
 def load_exercise_db(path: str) -> Dict[str, dict]:
     with open(path, "r") as f:
@@ -46,17 +32,15 @@ def load_exercise_db(path: str) -> Dict[str, dict]:
         v["prox"] = max(0.5, min(1.2, float(v.get("prox", 0.8))))
     return db
 
-# ==========================================================
-# 2. DATA STRUCTURES
-# ==========================================================
+
 
 @dataclass
 class Block:
     ex_id: str
     sets: int
     reps: int
-    intensity: float   # fraction of 1RM (0.55–0.9 typical)
-    rest_s: int        # rest between sets in seconds
+    intensity: float   
+    rest_s: int        
 
 @dataclass
 class Session:
@@ -66,15 +50,8 @@ class Session:
 class Plan:
     sessions: List[Session]  # 7 sessions (some may be empty)
 
-# ==========================================================
-# 3. TIME MODEL
-# ==========================================================
 
 def set_minutes(reps: int, rest_s: int) -> float:
-    """
-    Approximate minutes per set = time under tension + rest.
-    3 seconds per rep is typical for hypertrophy tempo.
-    """
     return (reps * 3.0) / 60.0 + rest_s / 60.0
 
 def block_minutes(b: Block) -> float:
@@ -86,9 +63,7 @@ def session_minutes(s: Session) -> float:
 def plan_minutes(p: Plan) -> float:
     return sum(session_minutes(s) for s in p.sessions)
 
-# ==========================================================
-# 4. EFFECTIVE STIMULUS PER SET
-# ==========================================================
+
 
 def es_per_set(ex: dict, reps: int, intensity: float) -> float:
     """
@@ -105,9 +80,7 @@ def es_per_set(ex: dict, reps: int, intensity: float) -> float:
     f_int = min(1.0, intensity / 0.75)
     return w_range * w_prox * f_rep * f_int
 
-# ==========================================================
-# 5. SRA MODEL (Stimulus–Recovery–Adaptation)
-# ==========================================================
+
 
 class SRAModel:
     """
@@ -139,9 +112,6 @@ class SRAModel:
         H = {m: A[m] - self.lam * F[m] for m in MUSCLES}
         return H, F
 
-# ==========================================================
-# 6. PLAN → DAILY STIMULI
-# ==========================================================
 
 def plan_to_daily_stimuli(plan: Plan, exdb: Dict[str, dict]) -> List[Dict[str, List[float]]]:
     days = []
@@ -155,9 +125,6 @@ def plan_to_daily_stimuli(plan: Plan, exdb: Dict[str, dict]) -> List[Dict[str, L
         days.append(bucket)
     return days
 
-# ==========================================================
-# 7. REPAIR (FEASIBILITY)
-# ==========================================================
 
 def order_session_by_compound_first(sess: Session, exdb: Dict[str, dict]) -> Session:
     """Sort blocks so compound exercises come before isolation ones."""
@@ -174,7 +141,7 @@ def repair_plan(plan: Plan, session_cap_min: float = SESSION_CAP_MIN,
 
     for sess in plan.sessions:
         blocks = list(sess.blocks)
-        was_empty = (len(blocks) == 0)   # <- remember if this is a rest day
+        was_empty = (len(blocks) == 0)   # if this is a rest day
         cur = session_minutes(sess)
         j = 0
 
@@ -195,10 +162,8 @@ def repair_plan(plan: Plan, session_cap_min: float = SESSION_CAP_MIN,
             cur = session_minutes(Session(blocks))
             j += 1
 
-        # Top up ONLY if the day already had work
         if not was_empty and ex_ids:
             while cur < min_session_min and blocks:
-                # use the model.py random_block (signature: (ex_ids, exdb=None, day_focus=None))
                 blocks.append(random_block(ex_ids, exdb))
                 cur = session_minutes(Session(blocks))
 
@@ -242,9 +207,9 @@ def evaluate_single_objective(plan, exdb, sra=None):
 
     # ---- Session durations ----
     daily_minutes = [session_minutes(s) for s in plan.sessions]
-    short_penalty = sum(1 for m in daily_minutes if 0 < m < 45) * 5.0   # stronger penalty
-    long_bonus    = sum(1 for m in daily_minutes if m > 55) * 3.0       # small reward
-    rest_bonus    = sum(1 for m in daily_minutes if m < 25) * 1.0       # small rest reward
+    short_penalty = sum(1 for m in daily_minutes if 0 < m < 45) * 5.0   
+    long_bonus    = sum(1 for m in daily_minutes if m > 55) * 3.0       
+    rest_bonus    = sum(1 for m in daily_minutes if m < 25) * 1.0       
 
     # ---- Compound preference ----
     compound_ratio = sum(1 for b in all_ex if exdb[b]["type"] == "compound") / max(1, len(all_ex))
@@ -258,15 +223,15 @@ def evaluate_single_objective(plan, exdb, sra=None):
         penalty_repeat += overlap / max(1, len(todays_targets))
         prev_targets = todays_targets
 
-    # ---- Weighted fitness ----
+    
     score = (
-        1.2 * H_sum                      # ↑ reward for total stimulus
+        1.2 * H_sum                      
         - 0.25 * F_sum
         - 0.015 * minutes
         - 20 * dup_penalty
         - 15 * imbalance
         + 10 * coverage
-        + 5 * compound_ratio             # reward more compounds overall
+        + 5 * compound_ratio             
         + long_bonus
         + rest_bonus
         - short_penalty
@@ -274,11 +239,6 @@ def evaluate_single_objective(plan, exdb, sra=None):
     )
     return score, H_sum, F_sum, minutes
 
-
-
-# ==========================================================
-# 9. RANDOM PLAN GENERATOR
-# ==========================================================
 
 def random_block(ex_ids: List[str], exdb=None, day_focus=None) -> Block:
     """Generate a random exercise block, optionally using focus muscles."""
@@ -306,7 +266,7 @@ def random_plan(exdb: Dict[str, dict],
                 continue
             blocks.append(random_block(ex_ids, exdb))
         s = Session(blocks)
-        # ensure at least 40 min or rebuild
+        
         while session_minutes(s) < 40 and blocks:
             blocks.append(random_block(ex_ids, exdb))
             s = Session(blocks)
@@ -314,9 +274,38 @@ def random_plan(exdb: Dict[str, dict],
     return repair_plan(Plan(sessions))
 
 
-# ==========================================================
-# 10. PRETTY PRINTING
-# ==========================================================
+def decode_to_plan(individual) -> Plan:
+    """
+    Converts a flat GA/NSGA-II genome of length DAYS * MAX_BLOCKS_PER_DAY
+    into a Plan object containing 7 Sessions.
+    Each slot may contain:
+        - None
+        - a Block instance
+        - a tuple representation (ex_id, sets, reps, intensity, rest)
+    """
+    days = []
+    it = iter(individual)
+
+    for _ in range(DAYS):
+        blocks = []
+        for _ in range(MAX_BLOCKS_PER_DAY):
+            gene = next(it)
+
+            if gene is None:
+                continue
+
+            if isinstance(gene, Block):
+                blocks.append(gene)
+            else:
+                # tuple-like representation
+                ex_id, sets, reps, intensity, rest_s = gene
+                blocks.append(Block(ex_id, sets, reps, intensity, rest_s))
+
+        days.append(Session(blocks))
+
+    return Plan(days)
+
+
 
 def summarize_plan(plan: Plan) -> str:
     lines = []
@@ -333,9 +322,6 @@ def summarize_plan(plan: Plan) -> str:
     lines.append(f"Week total ≈ {plan_minutes(plan):.1f} min")
     return "\n".join(lines)
 
-# ==========================================================
-# 11. SELF-TEST
-# ==========================================================
 
 if __name__ == "__main__":
     here = os.path.dirname(__file__)

@@ -3,18 +3,16 @@ from typing import List
 from deap import base, creator, tools
 from .model import (
     load_exercise_db, Plan, Session, Block,
-    evaluate_single_objective,  # we'll reuse to compute (H_sum, F_sum, Minutes)
+    evaluate_single_objective,  
     summarize_plan, DAYS, MAX_BLOCKS_PER_DAY
 )
 
-# If you added this earlier, import; otherwise it’s optional.
 try:
     from .model import order_session_by_compound_first
     HAS_ORDERING = True
 except Exception:
     HAS_ORDERING = False
 
-# --- Optional: same split-focus you used for GA
 SPLIT_FOCUS = {
     0: ["chest", "shoulders", "triceps"],    # Push
     1: ["back", "biceps"],                   # Pull
@@ -26,17 +24,16 @@ SPLIT_FOCUS = {
 }
 
 def make_toolbox(exdb):
-    # -------- Fitness + Individual (Multi-Objective) --------
-    # weights: (+H_sum, -Minutes, -F_sum)
-    if not hasattr(creator, "FitnessMulti"):
-        creator.create("FitnessMulti", base.Fitness, weights=(+1.0, -1.0, -1.0))
-    if not hasattr(creator, "Individual"):
-        creator.create("Individual", list, fitness=creator.FitnessMulti)
+    
+    if not hasattr(creator, "NSGAFitnessMulti"):
+        creator.create("NSGAFitnessMulti", base.Fitness, weights=(+1.0, -1.0, -1.0))
+    if not hasattr(creator, "NSGAIndividual"):
+        creator.create("NSGAIndividual", list, fitness=creator.NSGAFitnessMulti)
 
     toolbox = base.Toolbox()
     ex_ids = list(exdb.keys())
 
-    # -------- Building blocks (same style as your GA) --------
+
     def random_block(ex_ids: List[str], exdb, day_focus=None) -> Block:
         if day_focus:
             focus_ex = [eid for eid in ex_ids if any(m in exdb[eid]["targets"] for m in day_focus)]
@@ -68,12 +65,12 @@ def make_toolbox(exdb):
                 ex_block = random_block(choices, exdb, focus)
                 genome.append(ex_block)
                 used.add(ex_block.ex_id)
-        return creator.Individual(genome)
+        return creator.NSGAIndividual(genome)
 
     toolbox.register("individual", init_individual)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
-    # -------- Encoding/Decoding --------
+    
     def decode_to_plan(ind):
         days = []
         it = iter(ind)
@@ -89,25 +86,20 @@ def make_toolbox(exdb):
                     ex, sets, reps, intensity, rest = b
                     blocks.append(Block(ex, sets, reps, intensity, rest))
             if HAS_ORDERING:
-                # ensure compounds first
                 blocks = order_session_by_compound_first(Session(blocks), exdb).blocks
             days.append(Session(blocks))
         return Plan(days)
 
     toolbox.register("decode_to_plan", decode_to_plan)
 
-    # -------- Multi-objective evaluation --------
     def evaluate(ind):
         plan = decode_to_plan(ind)
-        # reuse the single-objective to get (score, H_sum, F_sum, minutes)
-        _, H_sum, F_sum, minutes = evaluate_single_objective(plan, exdb)
-        # Return a 3-tuple matching FitnessMulti weights
-        #   (maximize H_sum, minimize minutes, minimize F_sum)
+        _, H_sum, F_sum, minutes = evaluate_single_objective(plan, exdb)  
         return (H_sum, minutes, F_sum)
 
     toolbox.register("evaluate", evaluate)
 
-    # -------- Variation operators (same as GA) --------
+    
     def mate(ind1, ind2):
         point = random.randint(1, DAYS-1) * MAX_BLOCKS_PER_DAY
         ind1[point:], ind2[point:] = ind2[point:], ind1[point:]
@@ -148,13 +140,13 @@ def make_toolbox(exdb):
 
                     ind[i] = Block(ex, sets, reps, intensity, rest)
 
-        # keep representation consistent (Blocks or None); ordering happens in decode/eval
+        
         return (ind,)
 
     toolbox.register("mate", mate)
     toolbox.register("mutate", mutate, indpb=0.15)
 
-    # -------- NSGA-II selection --------
+    
     toolbox.register("select", tools.selNSGA2)           # elitist replacement
     toolbox.register("select_tournament", tools.selTournamentDCD)  # for parent selection (crowding tournament)
 
@@ -179,7 +171,7 @@ def main():
         random.seed(seed); np.random.seed(seed)
 
         pop = toolbox.population(n=args.pop)
-        # NSGA-II wants the initial population to be sorted and assigned crowding distances
+        
         invalid = [ind for ind in pop if not ind.fitness.valid]
         for ind in invalid:
             ind.fitness.values = toolbox.evaluate(ind)
@@ -189,11 +181,10 @@ def main():
 
         rows = []
         for g in range(args.gens):
-            # --- Parent selection with crowding tournament ---
+            
             offspring = tools.selTournamentDCD(pop, len(pop))
             offspring = list(map(toolbox.clone, offspring))
 
-            # --- Variation ---
             for i in range(1, len(offspring), 2):
                 if random.random() < args.cxpb:
                     toolbox.mate(offspring[i-1], offspring[i])
@@ -203,18 +194,14 @@ def main():
                     toolbox.mutate(offspring[i])
                     del offspring[i].fitness.values
 
-            # --- Evaluate ---
             invalid = [ind for ind in offspring if not ind.fitness.valid]
             for ind in invalid:
                 ind.fitness.values = toolbox.evaluate(ind)
 
-            # --- Elitist replacement (NSGA-II) ---
             pop = toolbox.select(pop + offspring, args.pop)
 
-            # --- Track Pareto front ---
             pareto.update(pop)
 
-            # --- Simple logging (best medians etc.) ---
             H_vals = [i.fitness.values[0] for i in pop]
             Min_vals = [i.fitness.values[1] for i in pop]
             F_vals = [i.fitness.values[2] for i in pop]
@@ -226,15 +213,12 @@ def main():
                 "pareto_size": len(pareto)
             })
 
-        # --- Write log ---
         df = pd.DataFrame(rows)
         header = not os.path.exists(args.out)
         os.makedirs(os.path.dirname(args.out), exist_ok=True)
         df.to_csv(args.out, mode="a", header=header, index=False)
-
-        # --- Show a few Pareto solutions (diverse trade-offs) ---
         print(f"\n=== Seed {seed} | Pareto size: {len(pareto)} ===")
-        # pick up to 3 diverse solutions: best H, best time, best fatigue
+        
         best_H = max(pareto, key=lambda ind: ind.fitness.values[0])
         best_Min = min(pareto, key=lambda ind: ind.fitness.values[1])
         best_F = min(pareto, key=lambda ind: ind.fitness.values[2])

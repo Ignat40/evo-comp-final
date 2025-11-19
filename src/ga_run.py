@@ -4,7 +4,7 @@ from .model import order_session_by_compound_first
 from deap import base, creator, tools
 from .model import (load_exercise_db, Plan, Session, Block,
                     evaluate_single_objective, summarize_plan,
-                    DAYS, MAX_BLOCKS_PER_DAY)
+                    DAYS, MAX_BLOCKS_PER_DAY, decode_to_plan)
 
 SPLIT_FOCUS = {
     0: ["chest", "shoulders", "triceps"],    # Push
@@ -17,10 +17,10 @@ SPLIT_FOCUS = {
 }
 
 def make_toolbox(exdb):
-    if not hasattr(creator, "FitnessMax"):
-        creator.create("FitnessMax", base.Fitness, weights=(1.0,))
-    if not hasattr(creator, "Individual"):
-        creator.create("Individual", list, fitness=creator.FitnessMax)
+    if not hasattr(creator, "GAFitnessMax"):
+        creator.create("GAFitnessMax", base.Fitness, weights=(1.0,))
+    if not hasattr(creator, "GAIndividual"):
+        creator.create("GAIndividual", list, fitness=creator.GAFitnessMax)
 
     toolbox = base.Toolbox()
     ex_ids = list(exdb.keys())
@@ -48,35 +48,35 @@ def make_toolbox(exdb):
                 if not focus:
                     genome.append(None)  # rest day
                     continue
-                if random.random() >= 0.9:  # keep a little sparsity
+                if random.random() >= 0.9:  # keep a lil sparsity
                     genome.append(None)
                     continue
-                # prefer unused first; if exhausted, allow reuse
+                
                 choices = [e for e in day_pool if e not in used] or day_pool
                 ex_block = random_block(choices, exdb, focus)
                 genome.append(ex_block)
                 used.add(ex_block.ex_id)
-        return creator.Individual(genome)
+        return creator.GAIndividual(genome)
 
     toolbox.register("individual", init_individual)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
-    def decode_to_plan(ind):
-        days = []
-        it = iter(ind)
-        for _ in range(DAYS):
-            blocks = []
-            for _ in range(MAX_BLOCKS_PER_DAY):
-                b = next(it)
-                if b is None: continue
-                if isinstance(b, Block):
-                    blocks.append(b)
-                else:
-                    ex, sets, reps, intensity, rest = b
-                    blocks.append(Block(ex, sets, reps, intensity, rest))
-            days.append(Session(blocks))
-        return Plan(days)
-    toolbox.register("decode_to_plan", decode_to_plan)
+    # def decode_to_plan(ind):
+    #     days = []
+    #     it = iter(ind)
+    #     for _ in range(DAYS):
+    #         blocks = []
+    #         for _ in range(MAX_BLOCKS_PER_DAY):
+    #             b = next(it)
+    #             if b is None: continue
+    #             if isinstance(b, Block):
+    #                 blocks.append(b)
+    #             else:
+    #                 ex, sets, reps, intensity, rest = b
+    #                 blocks.append(Block(ex, sets, reps, intensity, rest))
+    #         days.append(Session(blocks))
+    #     return Plan(days)
+    # toolbox.register("decode_to_plan", decode_to_plan)
 
 
     def evaluate(ind):
@@ -101,8 +101,7 @@ def make_toolbox(exdb):
                     ind[i] = random_block(ex_ids, exdb, focus)
                     continue
 
-                if b is not None:
-                    # Unpack safely
+                if b is not None:                    
                     if isinstance(b, Block):
                         ex, sets, reps, intensity, rest = b.ex_id, b.sets, b.reps, b.intensity, b.rest_s
                     else:
@@ -110,11 +109,10 @@ def make_toolbox(exdb):
 
                     r = random.random()
                     if r < 0.2:
-                        # either redraw a brand-new focused block...
                         if random.random() < 0.5:
                             ind[i] = random_block(ex_ids, exdb, focus)
                             continue
-                        # ...or just swap the exercise within focus
+                    
                         focus_pool = [eid for eid in ex_ids if not focus or any(m in exdb[eid]["targets"] for m in focus)]
                         ex = random.choice(focus_pool) if focus_pool else random.choice(ex_ids)
                     elif r < 0.4:
@@ -129,7 +127,7 @@ def make_toolbox(exdb):
                     ind[i] = Block(ex, sets, reps, intensity, rest)
                     
 
-        plan = toolbox.decode_to_plan(ind)
+        plan = decode_to_plan(ind)
         for day in range(DAYS):
             sess = plan.sessions[day]
             plan.sessions[day] = order_session_by_compound_first(sess, exdb)
@@ -198,11 +196,12 @@ def main():
 
         # Print best plan for this seed
         def decode_to_plan(ind):
-            days=[]; it=iter(ind)
+            days=[]
+            it=iter(ind)
             for _ in range(DAYS):
                 blocks=[]
                 for _ in range(MAX_BLOCKS_PER_DAY):
-                    b=next(it)
+                    b = next(it)
                     if b is None: continue
                     if isinstance(b, Block):
                         blocks.append(b)
