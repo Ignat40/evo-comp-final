@@ -165,7 +165,7 @@ Makes the plan gym-realistic.
 
 ---
 
-# 📊 Benchmarking
+# Benchmarking
 
 `benchmark.py` runs:
 
@@ -183,7 +183,7 @@ Outputs:
 
 ---
 
-# 📈 Results Highlights
+# Results Highlights
 
 * GA converges to a balanced, realistic weekly plan
 * NSGA-II provides a frontier of training options, such as:
@@ -197,7 +197,7 @@ Outputs:
 
 ---
 
-# 🚀 How to Run
+# How to Run
 
 ### Run single-objective GA
 
